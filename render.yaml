@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: interverse-website
+    runtime: static
+    buildCommand: ""
+    staticPublishPath: .
+    autoDeployTrigger: commit
