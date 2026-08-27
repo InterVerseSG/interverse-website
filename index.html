@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>InterVerseSG — Campus Preview</title>
+  <meta name="description" content="Previsualización web del gemelo digital InterVerseSG del Recinto de San Germán." />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <style>
+    :root{--green:#007B5F;--yellow:#FED141;--gold:#85714D;--bg:#f4f7f6;--text:#17211e;--panel:#fff;--muted:#5e6b67;--line:#d8e1de;--danger:#a52828}
+    *{box-sizing:border-box} body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text)}
+    header{background:var(--green);color:#fff;padding:14px 20px;border-bottom:5px solid var(--yellow)}
+    header h1{margin:0;font-size:1.45rem} header p{margin:.3rem 0 0;font-size:.95rem}
+    main{display:grid;grid-template-columns:minmax(290px,370px) 1fr;min-height:calc(100vh - 92px)}
+    aside{padding:16px;background:var(--panel);border-right:1px solid var(--line);overflow:auto}
+    #map{min-height:650px;height:calc(100vh - 92px)}
+    h2{font-size:1.05rem;margin:4px 0 10px;color:var(--green)}
+    label{display:block;font-weight:700;margin:.75rem 0 .35rem}
+    input,button{font:inherit} input[type=text]{width:100%;padding:10px 11px;border:1px solid #aebdb8;border-radius:7px}
+    button{border:0;border-radius:7px;padding:10px 12px;cursor:pointer;font-weight:700}
+    .primary{background:var(--green);color:#fff;width:100%;margin-top:8px}.secondary{background:#e8efed;color:var(--green);width:100%;margin-top:8px}
+    .primary:focus,.secondary:focus,input:focus{outline:3px solid var(--yellow);outline-offset:2px}
+    .status{margin-top:12px;padding:10px;border-radius:7px;background:#edf4f2;border-left:4px solid var(--green);white-space:pre-wrap;font-size:.9rem}
+    .status.error{border-left-color:var(--danger);background:#fff1f1}
+    .poi-list{margin:12px 0 0;padding:0;list-style:none}.poi-list button{width:100%;text-align:left;background:#fff;border:1px solid var(--line);margin:0 0 6px;padding:9px}
+    .poi-list button:hover{background:#f1f7f5}.poi-list small{display:block;color:var(--muted);margin-top:3px}
+    .badge{display:inline-block;padding:2px 6px;border-radius:999px;background:var(--yellow);color:#3b3400;font-size:.73rem;font-weight:700}
+    .legend{font-size:.82rem;color:var(--muted);line-height:1.45;margin-top:14px}.route-note{font-size:.84rem;color:var(--muted)}
+    @media(max-width:850px){main{display:block}aside{border-right:0;border-bottom:1px solid var(--line)}#map{height:65vh;min-height:500px}}
+  </style>
+</head>
+<body>
+<header>
+  <h1>InterVerseSG — Campus Preview</h1>
+  <p>Previsualización web del entorno georreferenciado para Meta Quest</p>
+</header>
+<main>
+  <aside aria-label="Controles del mapa">
+    <h2>Comando de InterVerse</h2>
+    <label for="command">Escribe una instrucción</label>
+    <input id="command" type="text" value="Llévame a la Escuela Graduada" autocomplete="off" />
+    <button id="send" class="primary" type="button">Probar con Gemini + Builder</button>
+    <button id="reset" class="secondary" type="button">Mostrar todo el campus</button>
+    <div id="status" class="status" role="status" aria-live="polite">Cargando puntos del campus…</div>
+
+    <h2 style="margin-top:18px">Áreas verificadas</h2>
+    <p class="route-note">Selecciona un lugar para centrar el mapa y ver su ancla de navegación.</p>
+    <ul id="poiList" class="poi-list"></ul>
+
+    <div class="legend">
+      <span class="badge">NAV</span> Los marcadores representan destinos del mismo registro utilizado por Unreal/Meta Quest.<br><br>
+      Las coordenadas se muestran únicamente cuando el proyecto las ha marcado como verificadas. La representación web no sustituye una medición topográfica.
+    </div>
+  </aside>
+  <div id="map" aria-label="Mapa interactivo del Recinto de San Germán"></div>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script>
+const API='https://interverse-api-yhqx.onrender.com';
+const BUILDER='https://interverse-builder.onrender.com';
+const POI_GEOJSON='https://raw.githubusercontent.com/InterVerseSG/interverse-ai/main/knowledge/campus_san_german.geojson';
+
+const map=L.map('map',{zoomControl:true}).setView([18.0851,-67.0512],17);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+  maxZoom:20,
+  attribution:'© OpenStreetMap contributors'
+}).addTo(map);
+
+const poiLayer=L.layerGroup().addTo(map);
+const selectedLayer=L.layerGroup().addTo(map);
+const markerByNav=new Map();
+let campusBounds=null;
+
+const statusEl=document.getElementById('status');
+const listEl=document.getElementById('poiList');
+const commandEl=document.getElementById('command');
+
+function setStatus(text,error=false){statusEl.textContent=text;statusEl.className='status'+(error?' error':'');}
+function navForFeature(f){return f.properties?.navigation_anchor || `NAV_${f.properties?.id || 'Unknown'}`;}
+function displayForFeature(f){return f.properties?.display_name || f.properties?.id || 'Lugar';}
+
+function focusNavigationAnchor(nav,message=''){
+  const marker=markerByNav.get(nav);
+  if(!marker){setStatus(`Builder devolvió ${nav}, pero ese ancla todavía no tiene un punto geográfico cargado en el visor.`,true);return false;}
+  selectedLayer.clearLayers();
+  const ll=marker.getLatLng();
+  L.circleMarker(ll,{radius:14,weight:4,color:'#FED141',fillColor:'#007B5F',fillOpacity:.25}).addTo(selectedLayer);
+  map.flyTo(ll,19,{duration:.8});
+  marker.openPopup();
+  if(message)setStatus(`${message}\nDestino validado: ${nav}`);
+  return true;
+}
+
+async function loadPOIs(){
+  try{
+    const r=await fetch(POI_GEOJSON,{cache:'no-store'});
+    if(!r.ok)throw new Error(`GeoJSON HTTP ${r.status}`);
+    const data=await r.json();
+    const latlngs=[];
+    const features=(data.features||[]).filter(f=>f.geometry?.type==='Point' && Array.isArray(f.geometry.coordinates));
+    features.forEach(f=>{
+      const [lon,lat]=f.geometry.coordinates;
+      const name=displayForFeature(f);
+      const nav=navForFeature(f);
+      const marker=L.circleMarker([lat,lon],{radius:7,weight:2,color:'#007B5F',fillColor:'#FED141',fillOpacity:.9})
+        .bindPopup(`<strong>${name}</strong><br><code>${nav}</code><br><small>${lat.toFixed(6)}, ${lon.toFixed(6)}</small>`)
+        .addTo(poiLayer);
+      markerByNav.set(nav,marker);latlngs.push([lat,lon]);
+
+      const li=document.createElement('li');
+      const btn=document.createElement('button');
+      btn.type='button';
+      btn.innerHTML=`${name}<small>${nav}</small>`;
+      btn.addEventListener('click',()=>focusNavigationAnchor(nav,`Destino seleccionado: ${name}`));
+      li.appendChild(btn);listEl.appendChild(li);
+    });
+    if(latlngs.length){campusBounds=L.latLngBounds(latlngs);map.fitBounds(campusBounds.pad(.12));}
+    setStatus(`${features.length} puntos georreferenciados cargados. Puedes seleccionar un lugar o probar un comando.`);
+  }catch(err){setStatus(`No se pudo cargar el registro geográfico: ${err.message}`,true);}
+}
+
+async function runCommand(){
+  const message=commandEl.value.trim();
+  if(!message){setStatus('Escribe una instrucción primero.',true);return;}
+  document.getElementById('send').disabled=true;
+  setStatus('1/2 Gemini está interpretando la instrucción…');
+  try{
+    const a=await fetch(`${API}/api/v1/assistant`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({message,context:'InterVerseSG campus web preview',session_id:'web-preview'})
+    });
+    if(!a.ok)throw new Error(`InterVerse API HTTP ${a.status}`);
+    const command=await a.json();
+    setStatus(`1/2 Gemini: ${command.action}\n2/2 Builder está validando…`);
+
+    const b=await fetch(`${BUILDER}/api/v1/build/validate`,{
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(command)
+    });
+    if(!b.ok)throw new Error(`InterVerse Builder HTTP ${b.status}`);
+    const validated=await b.json();
+    if(!validated.accepted)throw new Error(validated.message || 'Builder rechazó la instrucción');
+
+    if(validated.action==='navigate' && validated.navigation_anchor){
+      focusNavigationAnchor(validated.navigation_anchor, command.response || validated.message || 'Navegación aceptada.');
+    }else{
+      setStatus(`Comando aceptado.\nAcción: ${validated.action}\n${command.response || validated.message || ''}`);
+    }
+  }catch(err){
+    setStatus(`La prueba no pudo completarse: ${err.message}\n\nSi Render acaba de desplegarse, espera unos segundos y vuelve a intentarlo.`,true);
+  }finally{document.getElementById('send').disabled=false;}
+}
+
+document.getElementById('send').addEventListener('click',runCommand);
+commandEl.addEventListener('keydown',e=>{if(e.key==='Enter')runCommand();});
+document.getElementById('reset').addEventListener('click',()=>{selectedLayer.clearLayers();if(campusBounds)map.fitBounds(campusBounds.pad(.12));});
+
+loadPOIs();
+</script>
+</body>
+</html>
