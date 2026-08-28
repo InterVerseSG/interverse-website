@@ -50,24 +50,19 @@ function ivInjectWalkControls(){
   });
 
   document.getElementById('ivGuideToggle').addEventListener('click',()=>{
-    if(!selectedNav){
-      setStatus('Selecciona primero un destino del campus.',true);
-      return;
-    }
+    if(!selectedNav){setStatus('Selecciona primero un destino del campus.',true);return;}
     if(ivGuideEnabled&&ivGuideNav===selectedNav) ivStopGuidance();
     else ivStartGuidance(selectedNav,true);
   });
 
   document.getElementById('ivFaceTarget').addEventListener('click',()=>{
     if(!selectedNav){setStatus('Selecciona primero un destino.',true);return;}
-    ivGuideNav=selectedNav;
-    ivFaceSelectedTarget();
+    ivGuideNav=selectedNav;ivFaceSelectedTarget();
   });
 
   document.getElementById('ivWalkHome').addEventListener('click',()=>{
     ivCameraEast=0;ivCameraNorth=0;zoom=1;yaw=-0.55;pitch=0.75;
-    ivGuideArrivalAnnounced=false;
-    draw3D();ivUpdateWalkStatus();ivUpdateGuidanceStatus();
+    ivGuideArrivalAnnounced=false;draw3D();ivUpdateWalkStatus();ivUpdateGuidanceStatus();
   });
 
   panel.querySelectorAll('[data-walk]').forEach(btn=>{
@@ -101,17 +96,14 @@ function ivStepWalk(dt){
   if(ivWalkKeys.has('e')) turn+=1;
   if(!f&&!s&&!turn) return;
   yaw+=turn*dt*1.25;
-  const speed=55;
-  const fx=Math.sin(-yaw),fz=Math.cos(-yaw),rx=Math.cos(-yaw),rz=-Math.sin(-yaw);
-  ivCameraEast+=(fx*f+rx*s)*speed*dt;
-  ivCameraNorth+=(fz*f+rz*s)*speed*dt;
+  const speed=55,fx=Math.sin(-yaw),fz=Math.cos(-yaw),rx=Math.cos(-yaw),rz=-Math.sin(-yaw);
+  ivCameraEast+=(fx*f+rx*s)*speed*dt;ivCameraNorth+=(fz*f+rz*s)*speed*dt;
   draw3D();ivUpdateWalkStatus();ivUpdateGuidanceStatus();
 }
 
 function ivUpdateWalkStatus(){
   const el=document.getElementById('ivWalkStatus');if(!el)return;
-  if(!ivWalkEnabled){el.textContent=`Posición · E ${Math.round(ivCameraEast)} m · N ${Math.round(ivCameraNorth)} m`;return;}
-  el.textContent=`Recorrido · E ${Math.round(ivCameraEast)} m · N ${Math.round(ivCameraNorth)} m`;
+  el.textContent=`${ivWalkEnabled?'Recorrido':'Posición'} · E ${Math.round(ivCameraEast)} m · N ${Math.round(ivCameraNorth)} m`;
 }
 
 function ivInputTarget(e){const t=e.target;return t&&(['INPUT','TEXTAREA','SELECT','BUTTON'].includes(t.tagName)||t.isContentEditable);}
@@ -125,117 +117,100 @@ window.addEventListener('keyup',e=>ivWalkKeys.delete(e.key.toLowerCase()));
 function ivTargetWorld(nav=ivGuideNav){
   if(!nav||!campusBounds) return null;
   const f=featureByNav.get(nav);if(!f) return null;
-  const [lon,lat]=f.geometry.coordinates;
-  const ll=L.latLng(lat,lon);
-  const p=ivBaseLocalXY(ll,campusBounds.getCenter());
+  const [lon,lat]=f.geometry.coordinates,ll=L.latLng(lat,lon),p=ivBaseLocalXY(ll,campusBounds.getCenter());
   return {nav,f,ll,east:p.x,north:p.z};
 }
-
 function ivGuideMetrics(){
   const t=ivTargetWorld();if(!t) return null;
   const dx=t.east-ivCameraEast,dz=t.north-ivCameraNorth;
   return {...t,dx,dz,distance:Math.hypot(dx,dz),bearing:Math.atan2(dx,dz)};
 }
-
 function ivStartGuidance(nav,face=true){
   if(!featureByNav.has(nav)){setStatus(`No existe información geográfica para ${nav}.`,true);return;}
   ivGuideEnabled=true;ivGuideNav=nav;ivGuideArrivalAnnounced=false;
-  const btn=document.getElementById('ivGuideToggle');
-  if(btn){btn.setAttribute('aria-pressed','true');btn.textContent='Detener guía';}
-  if(face) ivFaceSelectedTarget();
-  ivStartWalkLoop();ivUpdateGuidanceStatus();draw3D();
-  const f=featureByNav.get(nav);
-  setStatus(`Guía activa hacia ${displayForFeature(f)}.\nMuévete con WASD/flechas o los controles en pantalla.`);
+  const btn=document.getElementById('ivGuideToggle');if(btn){btn.setAttribute('aria-pressed','true');btn.textContent='Detener guía';}
+  if(face) ivFaceSelectedTarget();ivStartWalkLoop();ivUpdateGuidanceStatus();draw3D();
+  const f=featureByNav.get(nav);setStatus(`Guía activa hacia ${displayForFeature(f)}.\nMuévete con WASD/flechas o los controles en pantalla.`);
 }
-
 function ivStopGuidance(){
   ivGuideEnabled=false;ivGuideNav=null;ivGuideArrivalAnnounced=false;
-  const btn=document.getElementById('ivGuideToggle');
-  if(btn){btn.setAttribute('aria-pressed','false');btn.textContent='Guíame al destino';}
+  const btn=document.getElementById('ivGuideToggle');if(btn){btn.setAttribute('aria-pressed','false');btn.textContent='Guíame al destino';}
   const s=document.getElementById('ivGuideStatus');if(s)s.textContent='Guía detenida.';
-  if(!ivWalkEnabled) ivStopWalkLoop();
-  draw3D();
+  if(!ivWalkEnabled) ivStopWalkLoop();draw3D();
 }
-
 function ivFaceSelectedTarget(){
-  const nav=selectedNav||ivGuideNav;if(!nav) return;
-  ivGuideNav=nav;
-  const m=ivGuideMetrics();if(!m) return;
-  yaw=-m.bearing;
-  draw3D();ivUpdateGuidanceStatus();
+  const nav=selectedNav||ivGuideNav;if(!nav)return;ivGuideNav=nav;
+  const m=ivGuideMetrics();if(!m)return;yaw=-m.bearing;draw3D();ivUpdateGuidanceStatus();
 }
-
 function ivUpdateGuidanceStatus(){
   const el=document.getElementById('ivGuideStatus');if(!el)return;
-  if(!ivGuideEnabled){
-    const f=selectedNav?featureByNav.get(selectedNav):null;
-    el.textContent=f?`Destino listo: ${displayForFeature(f)}.`:'Selecciona un destino para iniciar la guía.';
-    return;
-  }
+  if(!ivGuideEnabled){const f=selectedNav?featureByNav.get(selectedNav):null;el.textContent=f?`Destino listo: ${displayForFeature(f)}.`:'Selecciona un destino para iniciar la guía.';return;}
   const m=ivGuideMetrics();if(!m){el.textContent='Destino de guía no disponible.';return;}
-  const name=displayForFeature(m.f);
-  const deg=(m.bearing*180/Math.PI+360)%360;
+  const name=displayForFeature(m.f),deg=(m.bearing*180/Math.PI+360)%360;
   el.textContent=`Guía → ${name} · ${Math.round(m.distance)} m · rumbo ${Math.round(deg)}°`;
-  if(m.distance<=12&&!ivGuideArrivalAnnounced){
-    ivGuideArrivalAnnounced=true;
-    setStatus(`Has llegado al área de ${name}.\nDestino: ${m.nav}`);
-  }else if(m.distance>16){ivGuideArrivalAnnounced=false;}
+  if(m.distance<=12&&!ivGuideArrivalAnnounced){ivGuideArrivalAnnounced=true;setStatus(`Has llegado al área de ${name}.\nDestino: ${m.nav}`);}else if(m.distance>16)ivGuideArrivalAnnounced=false;
 }
 
+function ivBoxesOverlap(a,b){return !(a.r<b.l||a.l>b.r||a.b<b.t||a.t>b.b);}
 function ivDrawBuildingLabels3D(center,w,h){
-  if(!Array.isArray(ivBuildingWays)||!ivBuildingWays.length) return;
+  if(!Array.isArray(ivBuildingWays)||!ivBuildingWays.length)return;
   const labels=[];
   for(const b of ivBuildingWays){
-    if(!b.nav) continue;
-    const f=featureByNav.get(b.nav);if(!f) continue;
-    const lat=b.points.reduce((a,p)=>a+p.lat,0)/b.points.length;
-    const lng=b.points.reduce((a,p)=>a+p.lng,0)/b.points.length;
-    const ll=L.latLng(lat,lng),q=localXY(ll,center);
-    const y=ivTerrainHeight(ll)*2.2+ivBuildingHeight(b.tags)*2.2+7;
-    const p=project({x:q.x,y,z:q.z},w,h);
-    if(p.s<=0) continue;
-    labels.push({p,text:displayForFeature(f),selected:b.nav===selectedNav});
+    if(!b.nav)continue;
+    const f=featureByNav.get(b.nav);if(!f)continue;
+    const lat=b.points.reduce((a,p)=>a+p.lat,0)/b.points.length,lng=b.points.reduce((a,p)=>a+p.lng,0)/b.points.length;
+    const ll=L.latLng(lat,lng),q=localXY(ll,center),y=ivTerrainHeight(ll)*2.2+ivBuildingHeight(b.tags)*2.2+9,p=project({x:q.x,y,z:q.z},w,h);
+    if(p.s<=0||p.x<-80||p.x>w+80||p.y<-40||p.y>h+40)continue;
+    labels.push({p,text:displayForFeature(f),selected:b.nav===selectedNav,nav:b.nav});
   }
-  labels.sort((a,b)=>a.p.y-b.p.y);
+  labels.sort((a,b)=>(b.selected-a.selected)||(b.p.s-a.p.s));
+  const occupied=[];
   ctx.textBaseline='middle';
   for(const l of labels){
-    const font=l.selected?'bold 13px Arial':'12px Arial';ctx.font=font;
-    const tw=ctx.measureText(l.text).width,pad=5;
-    ctx.fillStyle=l.selected?'rgba(254,209,65,.94)':'rgba(255,255,255,.88)';
-    ctx.fillRect(l.p.x-tw/2-pad,l.p.y-10,tw+pad*2,20);
-    ctx.strokeStyle=l.selected?'#85714D':'rgba(0,93,72,.55)';ctx.lineWidth=1;ctx.strokeRect(l.p.x-tw/2-pad,l.p.y-10,tw+pad*2,20);
+    const font=l.selected?'bold 15px Arial':'12px Arial';ctx.font=font;
+    const tw=ctx.measureText(l.text).width,pad=l.selected?7:5,bh=l.selected?25:20;
+    const box={l:l.p.x-tw/2-pad,r:l.p.x+tw/2+pad,t:l.p.y-bh/2,b:l.p.y+bh/2};
+    const collides=occupied.some(o=>ivBoxesOverlap(box,o));
+    if(collides&&!l.selected)continue;
+    occupied.push(box);
+    if(l.selected){ctx.strokeStyle='rgba(254,209,65,.55)';ctx.lineWidth=6;ctx.beginPath();ctx.moveTo(l.p.x,l.p.y+bh/2);ctx.lineTo(l.p.x,l.p.y+46);ctx.stroke();}
+    ctx.fillStyle=l.selected?'rgba(254,209,65,.97)':'rgba(255,255,255,.90)';ctx.fillRect(box.l,box.t,box.r-box.l,box.b-box.t);
+    ctx.strokeStyle=l.selected?'#85714D':'rgba(0,93,72,.50)';ctx.lineWidth=l.selected?2:1;ctx.strokeRect(box.l,box.t,box.r-box.l,box.b-box.t);
     ctx.fillStyle='#17211e';ctx.fillText(l.text,l.p.x-tw/2,l.p.y);
   }
 }
 
-function ivDrawUserAndGuidance(center,w,h){
-  const centerLL=center;
-  const userLL=L.latLng(
-    centerLL.lat+(ivCameraNorth/6371000)*(180/Math.PI),
-    centerLL.lng+(ivCameraEast/(6371000*Math.cos(centerLL.lat*Math.PI/180)))*(180/Math.PI)
-  );
-  const uy=ivTerrainHeight(userLL)*2.2+3;
-  const up=project({x:0,y:uy,z:0},w,h);
+function ivSelectedDestinationPoint(center){
+  if(!selectedNav)return null;
+  const t=ivTargetWorld(selectedNav);if(!t)return null;
+  const q=localXY(t.ll,center),ground=ivTerrainHeight(t.ll)*2.2;
+  return {t,q,ground};
+}
+function ivDrawDestinationBeacon(center,w,h){
+  const d=ivSelectedDestinationPoint(center);if(!d)return;
+  const base=project({x:d.q.x,y:d.ground+3,z:d.q.z},w,h),top=project({x:d.q.x,y:d.ground+80,z:d.q.z},w,h);
   ctx.save();
-  ctx.fillStyle='#ffffff';ctx.strokeStyle='#007B5F';ctx.lineWidth=3;
-  ctx.beginPath();ctx.arc(up.x,up.y,8,0,Math.PI*2);ctx.fill();ctx.stroke();
-  const fx=Math.sin(-yaw),fz=Math.cos(-yaw);
-  const fp=project({x:fx*18,y:uy+2,z:fz*18},w,h);
-  ctx.strokeStyle='#007B5F';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(up.x,up.y);ctx.lineTo(fp.x,fp.y);ctx.stroke();
-  ctx.fillStyle='#17211e';ctx.font='bold 11px Arial';ctx.fillText('Tú',up.x+11,up.y-8);
+  ctx.strokeStyle='rgba(254,209,65,.88)';ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(base.x,base.y);ctx.lineTo(top.x,top.y);ctx.stroke();
+  ctx.fillStyle='rgba(254,209,65,.22)';ctx.beginPath();ctx.arc(base.x,base.y,18,0,Math.PI*2);ctx.fill();
+  ctx.strokeStyle='#85714D';ctx.lineWidth=3;ctx.beginPath();ctx.arc(base.x,base.y,18,0,Math.PI*2);ctx.stroke();
+  ctx.fillStyle='#FED141';ctx.beginPath();ctx.moveTo(top.x,top.y-12);ctx.lineTo(top.x-10,top.y+7);ctx.lineTo(top.x+10,top.y+7);ctx.closePath();ctx.fill();ctx.stroke();
+  ctx.restore();
+}
 
+function ivDrawUserAndGuidance(center,w,h){
+  const centerLL=center,userLL=L.latLng(centerLL.lat+(ivCameraNorth/6371000)*(180/Math.PI),centerLL.lng+(ivCameraEast/(6371000*Math.cos(centerLL.lat*Math.PI/180)))*(180/Math.PI));
+  const uy=ivTerrainHeight(userLL)*2.2+3,up=project({x:0,y:uy,z:0},w,h);
+  ctx.save();ctx.fillStyle='#fff';ctx.strokeStyle='#007B5F';ctx.lineWidth=3;ctx.beginPath();ctx.arc(up.x,up.y,8,0,Math.PI*2);ctx.fill();ctx.stroke();
+  const fx=Math.sin(-yaw),fz=Math.cos(-yaw),fp=project({x:fx*18,y:uy+2,z:fz*18},w,h);
+  ctx.strokeStyle='#007B5F';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(up.x,up.y);ctx.lineTo(fp.x,fp.y);ctx.stroke();ctx.fillStyle='#17211e';ctx.font='bold 11px Arial';ctx.fillText('Tú',up.x+11,up.y-8);
   if(ivGuideEnabled){
-    const m=ivGuideMetrics();
-    if(m){
-      const targetLocal={x:m.dx,z:m.dz};
-      const ty=ivTerrainHeight(m.ll)*2.2+8;
-      const tp=project({x:targetLocal.x,y:ty,z:targetLocal.z},w,h);
+    const m=ivGuideMetrics();if(m){
+      const ty=ivTerrainHeight(m.ll)*2.2+8,tp=project({x:m.dx,y:ty,z:m.dz},w,h);
       ctx.strokeStyle='#FED141';ctx.lineWidth=5;ctx.setLineDash([10,7]);ctx.beginPath();ctx.moveTo(up.x,up.y);ctx.lineTo(tp.x,tp.y);ctx.stroke();ctx.setLineDash([]);
       ctx.fillStyle='#FED141';ctx.strokeStyle='#85714D';ctx.lineWidth=2;ctx.beginPath();ctx.arc(tp.x,tp.y,10,0,Math.PI*2);ctx.fill();ctx.stroke();
-
       const angle=Math.atan2(tp.y-up.y,tp.x-up.x),ax=w/2,ay=58,len=36;
       ctx.save();ctx.translate(ax,ay);ctx.rotate(angle);ctx.fillStyle='#FED141';ctx.strokeStyle='#85714D';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(len,0);ctx.lineTo(3,-13);ctx.lineTo(3,13);ctx.closePath();ctx.fill();ctx.stroke();ctx.restore();
-      ctx.fillStyle='rgba(255,255,255,.94)';ctx.fillRect(w/2-100,78,200,30);ctx.strokeStyle='#007B5F';ctx.strokeRect(w/2-100,78,200,30);ctx.fillStyle='#17211e';ctx.font='bold 13px Arial';ctx.textAlign='center';ctx.fillText(`${displayForFeature(m.f)} · ${Math.round(m.distance)} m`,w/2,94);ctx.textAlign='start';
+      ctx.fillStyle='rgba(255,255,255,.95)';ctx.fillRect(w/2-110,78,220,32);ctx.strokeStyle='#007B5F';ctx.strokeRect(w/2-110,78,220,32);ctx.fillStyle='#17211e';ctx.font='bold 13px Arial';ctx.textAlign='center';ctx.fillText(`${displayForFeature(m.f)} · ${Math.round(m.distance)} m`,w/2,95);ctx.textAlign='start';
     }
   }
   ctx.restore();
@@ -244,27 +219,25 @@ function ivDrawUserAndGuidance(center,w,h){
 const ivWalkDraw3D=draw3D;
 draw3D=function(){
   ivWalkDraw3D();
-  if(!ctx||!canvas||!campusBounds) return;
+  if(!ctx||!canvas||!campusBounds)return;
   const w=canvas.width/devicePixelRatio,h=canvas.height/devicePixelRatio;
   ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
   const center=campusBounds.getCenter();
+  ivDrawDestinationBeacon(center,w,h);
   ivDrawBuildingLabels3D(center,w,h);
   ivDrawUserAndGuidance(center,w,h);
 };
 
-// Keep guidance synchronized when another part of the viewer changes selectedNav.
 const ivOriginalShowDetails=showDetails;
 showDetails=function(nav){
   ivOriginalShowDetails(nav);
-  if(ivGuideEnabled&&nav!==ivGuideNav) ivStartGuidance(nav,false);
-  else ivUpdateGuidanceStatus();
+  if(ivGuideEnabled&&nav!==ivGuideNav)ivStartGuidance(nav,false);else ivUpdateGuidanceStatus();
 };
 
 function ivWalkReady(){
   ivInjectWalkControls();
   const help=document.querySelector('.three-help');
-  if(help) help.textContent='Arrastra para rotar, rueda para zoom o activa “Recorrer campus”. En recorrido usa WASD/flechas y Q/E. Selecciona un edificio y pulsa “Guíame al destino” para ver flecha y distancia restante.';
+  if(help)help.textContent='Arrastra para rotar, rueda para zoom o activa “Recorrer campus”. Las etiquetas evitan solaparse y el destino seleccionado aparece con un beacon amarillo. En recorrido usa WASD/flechas y Q/E.';
   ivUpdateWalkStatus();ivUpdateGuidanceStatus();draw3D();
 }
-
-if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',ivWalkReady); else ivWalkReady();
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ivWalkReady);else ivWalkReady();
