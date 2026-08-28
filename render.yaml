@@ -2,6 +2,6 @@ services:
   - type: web
     name: interverse-website
     runtime: static
-    buildCommand: ""
+    buildCommand: "cp index-fixed.html index.html"
     staticPublishPath: .
     autoDeployTrigger: commit
