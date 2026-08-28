@@ -47,3 +47,5 @@ jobs:
           grep -q 'ivStartGuidance' walkthrough.js
           grep -q 'ivGuideMetrics' walkthrough.js
           grep -q 'ivDrawUserAndGuidance' walkthrough.js
+          grep -q 'ivBoxesOverlap' walkthrough.js
+          grep -q 'ivDrawDestinationBeacon' walkthrough.js
