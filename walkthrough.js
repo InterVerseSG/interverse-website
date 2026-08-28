@@ -1,5 +1,5 @@
-// InterVerseSG browser walkthrough + active guidance layer.
-// Adds first-person-style movement, visible user position, destination arrow and remaining distance.
+// InterVerseSG browser walkthrough + active route guidance layer.
+// Adds first-person-style movement, user position, route-following guidance, destination beacon and remaining distance.
 
 let ivWalkEnabled=false;
 let ivCameraEast=0;
@@ -26,7 +26,8 @@ function ivInjectWalkControls(){
   panel.innerHTML=`
     <button id="ivWalkToggle" type="button" aria-pressed="false">Recorrer campus</button>
     <button id="ivGuideToggle" type="button" aria-pressed="false">Guíame al destino</button>
-    <button id="ivFaceTarget" type="button">Mirar al destino</button>
+    <button id="ivFaceTarget" type="button">Mirar al próximo tramo</button>
+    <button id="ivWalkOrigin" type="button">Ir al origen</button>
     <button id="ivWalkHome" type="button">Volver al centro</button>
     <div class="iv-walk-grid" aria-label="Controles de recorrido">
       <span></span><button data-walk="forward" type="button" aria-label="Avanzar">▲</button><span></span>
@@ -57,6 +58,11 @@ function ivInjectWalkControls(){
   document.getElementById('ivFaceTarget').addEventListener('click',()=>{
     if(!selectedNav){setStatus('Selecciona primero un destino.',true);return;}
     ivGuideNav=selectedNav;ivFaceSelectedTarget();
+  });
+
+  document.getElementById('ivWalkOrigin').addEventListener('click',()=>{
+    if(!ivPlaceUserAtOrigin()){setStatus('Selecciona un punto de origen válido.',true);return;}
+    ivGuideArrivalAnnounced=false;draw3D();ivUpdateWalkStatus();ivUpdateGuidanceStatus();
   });
 
   document.getElementById('ivWalkHome').addEventListener('click',()=>{
@@ -119,17 +125,74 @@ function ivTargetWorld(nav=ivGuideNav){
   const [lon,lat]=f.geometry.coordinates,ll=L.latLng(lat,lon),p=ivBaseLocalXY(ll,campusBounds.getCenter());
   return {nav,f,ll,east:p.x,north:p.z};
 }
+
+function ivOriginWorld(){
+  if(!campusBounds||!originEl?.value)return null;
+  const ll=latLngForNav(originEl.value);if(!ll)return null;
+  const p=ivBaseLocalXY(ll,campusBounds.getCenter());
+  return {nav:originEl.value,ll,east:p.x,north:p.z};
+}
+
+function ivPlaceUserAtOrigin(){
+  const o=ivOriginWorld();if(!o)return false;
+  ivCameraEast=o.east;ivCameraNorth=o.north;ivGuideArrivalAnnounced=false;
+  return true;
+}
+
+function ivRouteWorldPoints(){
+  if(!campusBounds||!Array.isArray(currentRoute)||currentRoute.length<2)return [];
+  const c=campusBounds.getCenter();
+  return currentRoute.map(ll=>{const p=ivBaseLocalXY(ll,c);return {ll,x:p.x,z:p.z};});
+}
+
+function ivClosestRoutePosition(points,userX,userZ){
+  if(points.length<2)return null;
+  let best=null;
+  for(let i=0;i<points.length-1;i++){
+    const a=points[i],b=points[i+1],vx=b.x-a.x,vz=b.z-a.z,len2=vx*vx+vz*vz;
+    const t=len2?Math.max(0,Math.min(1,((userX-a.x)*vx+(userZ-a.z)*vz)/len2)):0;
+    const x=a.x+vx*t,z=a.z+vz*t,d2=(userX-x)**2+(userZ-z)**2;
+    if(!best||d2<best.d2)best={i,t,x,z,d2};
+  }
+  return best;
+}
+
+function ivAdvanceOnRoute(points,pos,lookAhead=24){
+  let i=pos.i,x=pos.x,z=pos.z,left=lookAhead;
+  while(i<points.length-1){
+    const b=points[i+1],dx=b.x-x,dz=b.z-z,len=Math.hypot(dx,dz);
+    if(len>=left&&len>0)return {x:x+dx*(left/len),z:z+dz*(left/len),index:i+1};
+    left-=len;i++;x=points[i].x;z=points[i].z;
+  }
+  const last=points[points.length-1];return {x:last.x,z:last.z,index:points.length-1};
+}
+
+function ivRemainingRouteDistance(points,pos){
+  let total=Math.hypot(points[pos.i+1].x-pos.x,points[pos.i+1].z-pos.z);
+  for(let i=pos.i+1;i<points.length-1;i++)total+=Math.hypot(points[i+1].x-points[i].x,points[i+1].z-points[i].z);
+  return total;
+}
+
 function ivGuideMetrics(){
   const t=ivTargetWorld();if(!t) return null;
+  const route=ivRouteWorldPoints();
+  if(route.length>1){
+    const pos=ivClosestRoutePosition(route,ivCameraEast,ivCameraNorth);
+    if(pos){
+      const waypoint=ivAdvanceOnRoute(route,pos,24),dx=waypoint.x-ivCameraEast,dz=waypoint.z-ivCameraNorth;
+      return {...t,dx,dz,distance:ivRemainingRouteDistance(route,pos),bearing:Math.atan2(dx,dz),routeMode:true,routePosition:pos,waypoint};
+    }
+  }
   const dx=t.east-ivCameraEast,dz=t.north-ivCameraNorth;
-  return {...t,dx,dz,distance:Math.hypot(dx,dz),bearing:Math.atan2(dx,dz)};
+  return {...t,dx,dz,distance:Math.hypot(dx,dz),bearing:Math.atan2(dx,dz),routeMode:false};
 }
+
 function ivStartGuidance(nav,face=true){
   if(!featureByNav.has(nav)){setStatus(`No existe información geográfica para ${nav}.`,true);return;}
   ivGuideEnabled=true;ivGuideNav=nav;ivGuideArrivalAnnounced=false;
   const btn=document.getElementById('ivGuideToggle');if(btn){btn.setAttribute('aria-pressed','true');btn.textContent='Detener guía';}
   if(face) ivFaceSelectedTarget();ivStartWalkLoop();ivUpdateGuidanceStatus();draw3D();
-  const f=featureByNav.get(nav);setStatus(`Guía activa hacia ${displayForFeature(f)}.\nMuévete con WASD/flechas o los controles en pantalla.`);
+  const f=featureByNav.get(nav);setStatus(`Guía activa hacia ${displayForFeature(f)}.\n${ivRouteWorldPoints().length>1?'Siguiendo la ruta peatonal calculada.':'Usando dirección directa como respaldo.'}`);
 }
 function ivStopGuidance(){
   ivGuideEnabled=false;ivGuideNav=null;ivGuideArrivalAnnounced=false;
@@ -145,8 +208,8 @@ function ivUpdateGuidanceStatus(){
   const el=document.getElementById('ivGuideStatus');if(!el)return;
   if(!ivGuideEnabled){const f=selectedNav?featureByNav.get(selectedNav):null;el.textContent=f?`Destino listo: ${displayForFeature(f)}.`:'Selecciona un destino para iniciar la guía.';return;}
   const m=ivGuideMetrics();if(!m){el.textContent='Destino de guía no disponible.';return;}
-  const name=displayForFeature(m.f),deg=(m.bearing*180/Math.PI+360)%360;
-  el.textContent=`Guía → ${name} · ${Math.round(m.distance)} m · rumbo ${Math.round(deg)}°`;
+  const name=displayForFeature(m.f),deg=(m.bearing*180/Math.PI+360)%360,mode=m.routeMode?'ruta peatonal':'dirección directa';
+  el.textContent=`Guía → ${name} · ${Math.round(m.distance)} m restantes · ${mode} · rumbo ${Math.round(deg)}°`;
   if(m.distance<=12&&!ivGuideArrivalAnnounced){ivGuideArrivalAnnounced=true;setStatus(`Has llegado al área de ${name}.\nDestino: ${m.nav}`);}else if(m.distance>16)ivGuideArrivalAnnounced=false;
 }
 
@@ -154,42 +217,40 @@ function ivShow3D(){
   const button=document.getElementById('view3D');
   if(button){button.click();return;}
   const mapEl=document.getElementById('map'),three=document.getElementById('threeView');
-  if(mapEl)mapEl.style.display='none';if(three)three.style.display='block';
-  setTimeout(draw3D,30);
+  if(mapEl)mapEl.style.display='none';if(three)three.style.display='block';setTimeout(draw3D,30);
+}
+
+async function ivWaitForRoute(timeout=3500){
+  const started=performance.now();
+  while(performance.now()-started<timeout){
+    if(Array.isArray(currentRoute)&&currentRoute.length>1)return true;
+    await new Promise(r=>setTimeout(r,120));
+  }
+  return false;
 }
 
 async function ivActivateNavigationCommand(nav){
   if(!nav||!featureByNav.has(nav))return;
-  ivShow3D();
-  ivGuideNav=nav;
-  ivStartGuidance(nav,true);
-  const f=featureByNav.get(nav);
-  const name=displayForFeature(f);
-  setStatus(`Ruta y guía 3D activadas hacia ${name}.\nUsa WASD/flechas o los controles de recorrido para avanzar.`);
+  await ivWaitForRoute();
+  ivPlaceUserAtOrigin();
+  ivShow3D();ivGuideNav=nav;ivStartGuidance(nav,true);
+  const f=featureByNav.get(nav),name=displayForFeature(f);
+  setStatus(`Ruta y guía 3D activadas hacia ${name}.\nInicio: ${originEl?.selectedOptions?.[0]?.textContent||'origen seleccionado'} · ${ivRouteWorldPoints().length>1?'ruta peatonal':'dirección directa'}.`);
 }
 
 function ivInstallCommandAutoGuide(){
   const send=document.getElementById('send');if(!send||send.dataset.ivAutoGuide==='1')return;
   send.dataset.ivAutoGuide='1';
-  send.addEventListener('click',()=>{
-    const before=selectedNav;
-    const started=performance.now();
-    const watch=()=>{
-      if(selectedNav&&selectedNav!==before){ivActivateNavigationCommand(selectedNav);return;}
-      if(performance.now()-started<15000)setTimeout(watch,180);
-    };
-    setTimeout(watch,180);
-  });
-  const command=document.getElementById('command');
-  if(command)command.addEventListener('keydown',e=>{
-    if(e.key!=='Enter')return;
+  const installWatch=()=>{
     const before=selectedNav,started=performance.now();
     const watch=()=>{
-      if(selectedNav&&selectedNav!==before){ivActivateNavigationCommand(selectedNav);return;}
+      if(selectedNav&&selectedNav!==before){setTimeout(()=>ivActivateNavigationCommand(selectedNav),250);return;}
       if(performance.now()-started<15000)setTimeout(watch,180);
     };
     setTimeout(watch,180);
-  });
+  };
+  send.addEventListener('click',installWatch);
+  const command=document.getElementById('command');if(command)command.addEventListener('keydown',e=>{if(e.key==='Enter')installWatch();});
 }
 
 function ivBoxesOverlap(a,b){return !(a.r<b.l||a.l>b.r||a.b<b.t||a.t>b.b);}
@@ -197,8 +258,7 @@ function ivDrawBuildingLabels3D(center,w,h){
   if(!Array.isArray(ivBuildingWays)||!ivBuildingWays.length)return;
   const labels=[];
   for(const b of ivBuildingWays){
-    if(!b.nav)continue;
-    const f=featureByNav.get(b.nav);if(!f)continue;
+    if(!b.nav)continue;const f=featureByNav.get(b.nav);if(!f)continue;
     const lat=b.points.reduce((a,p)=>a+p.lat,0)/b.points.length,lng=b.points.reduce((a,p)=>a+p.lng,0)/b.points.length;
     const ll=L.latLng(lat,lng),q=localXY(ll,center),y=ivTerrainHeight(ll)*2.2+ivBuildingHeight(b.tags)*2.2+9,p=project({x:q.x,y,z:q.z},w,h);
     if(p.s<=0||p.x<-80||p.x>w+80||p.y<-40||p.y>h+40)continue;
@@ -208,10 +268,8 @@ function ivDrawBuildingLabels3D(center,w,h){
   const occupied=[];ctx.textBaseline='middle';
   for(const l of labels){
     const font=l.selected?'bold 15px Arial':'12px Arial';ctx.font=font;
-    const tw=ctx.measureText(l.text).width,pad=l.selected?7:5,bh=l.selected?25:20;
-    const box={l:l.p.x-tw/2-pad,r:l.p.x+tw/2+pad,t:l.p.y-bh/2,b:l.p.y+bh/2};
-    const collides=occupied.some(o=>ivBoxesOverlap(box,o));if(collides&&!l.selected)continue;
-    occupied.push(box);
+    const tw=ctx.measureText(l.text).width,pad=l.selected?7:5,bh=l.selected?25:20,box={l:l.p.x-tw/2-pad,r:l.p.x+tw/2+pad,t:l.p.y-bh/2,b:l.p.y+bh/2};
+    if(occupied.some(o=>ivBoxesOverlap(box,o))&&!l.selected)continue;occupied.push(box);
     if(l.selected){ctx.strokeStyle='rgba(254,209,65,.55)';ctx.lineWidth=6;ctx.beginPath();ctx.moveTo(l.p.x,l.p.y+bh/2);ctx.lineTo(l.p.x,l.p.y+46);ctx.stroke();}
     ctx.fillStyle=l.selected?'rgba(254,209,65,.97)':'rgba(255,255,255,.90)';ctx.fillRect(box.l,box.t,box.r-box.l,box.b-box.t);
     ctx.strokeStyle=l.selected?'#85714D':'rgba(0,93,72,.50)';ctx.lineWidth=l.selected?2:1;ctx.strokeRect(box.l,box.t,box.r-box.l,box.b-box.t);
@@ -239,12 +297,12 @@ function ivDrawUserAndGuidance(center,w,h){
   ctx.strokeStyle='#007B5F';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(up.x,up.y);ctx.lineTo(fp.x,fp.y);ctx.stroke();ctx.fillStyle='#17211e';ctx.font='bold 11px Arial';ctx.fillText('Tú',up.x+11,up.y-8);
   if(ivGuideEnabled){
     const m=ivGuideMetrics();if(m){
-      const ty=ivTerrainHeight(m.ll)*2.2+8,tp=project({x:m.dx,y:ty,z:m.dz},w,h);
+      const guideLL=m.routeMode?userLL:m.ll,gy=ivTerrainHeight(guideLL)*2.2+8,tp=project({x:m.dx,y:gy,z:m.dz},w,h);
       ctx.strokeStyle='#FED141';ctx.lineWidth=5;ctx.setLineDash([10,7]);ctx.beginPath();ctx.moveTo(up.x,up.y);ctx.lineTo(tp.x,tp.y);ctx.stroke();ctx.setLineDash([]);
-      ctx.fillStyle='#FED141';ctx.strokeStyle='#85714D';ctx.lineWidth=2;ctx.beginPath();ctx.arc(tp.x,tp.y,10,0,Math.PI*2);ctx.fill();ctx.stroke();
+      ctx.fillStyle='#FED141';ctx.strokeStyle='#85714D';ctx.lineWidth=2;ctx.beginPath();ctx.arc(tp.x,tp.y,9,0,Math.PI*2);ctx.fill();ctx.stroke();
       const angle=Math.atan2(tp.y-up.y,tp.x-up.x),ax=w/2,ay=58,len=36;
       ctx.save();ctx.translate(ax,ay);ctx.rotate(angle);ctx.fillStyle='#FED141';ctx.strokeStyle='#85714D';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(len,0);ctx.lineTo(3,-13);ctx.lineTo(3,13);ctx.closePath();ctx.fill();ctx.stroke();ctx.restore();
-      ctx.fillStyle='rgba(255,255,255,.95)';ctx.fillRect(w/2-110,78,220,32);ctx.strokeStyle='#007B5F';ctx.strokeRect(w/2-110,78,220,32);ctx.fillStyle='#17211e';ctx.font='bold 13px Arial';ctx.textAlign='center';ctx.fillText(`${displayForFeature(m.f)} · ${Math.round(m.distance)} m`,w/2,95);ctx.textAlign='start';
+      ctx.fillStyle='rgba(255,255,255,.95)';ctx.fillRect(w/2-125,78,250,34);ctx.strokeStyle='#007B5F';ctx.strokeRect(w/2-125,78,250,34);ctx.fillStyle='#17211e';ctx.font='bold 13px Arial';ctx.textAlign='center';ctx.fillText(`${displayForFeature(m.f)} · ${Math.round(m.distance)} m ${m.routeMode?'por ruta':''}`,w/2,96);ctx.textAlign='start';
     }
   }
   ctx.restore();
@@ -263,7 +321,7 @@ showDetails=function(nav){ivOriginalShowDetails(nav);if(ivGuideEnabled&&nav!==iv
 function ivWalkReady(){
   ivInjectWalkControls();ivInstallCommandAutoGuide();
   const help=document.querySelector('.three-help');
-  if(help)help.textContent='Escribe “Llévame a…” para abrir automáticamente la guía 3D. Arrastra para rotar, rueda para zoom o activa “Recorrer campus”. Usa WASD/flechas y Q/E.';
+  if(help)help.textContent='La guía sigue la ruta peatonal cuando está disponible. Escribe “Llévame a…” para abrir 3D automáticamente; usa WASD/flechas y Q/E para recorrer el campus.';
   ivUpdateWalkStatus();ivUpdateGuidanceStatus();draw3D();
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ivWalkReady);else ivWalkReady();
