@@ -1,0 +1,35 @@
+name: Validate InterVerse Website
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check required files
+        run: |
+          test -f index.html
+          test -f app.js
+          test -f styles.css
+          test -f render.yaml
+      - name: Check JavaScript syntax
+        run: node --check app.js
+      - name: Check critical viewer hooks
+        run: |
+          grep -q 'threeCanvas' index.html
+          grep -q 'view3D' index.html
+          grep -q 'loadWalkingNetwork' app.js
+          grep -q 'shortestPath' app.js
+          grep -q 'draw3D' app.js
