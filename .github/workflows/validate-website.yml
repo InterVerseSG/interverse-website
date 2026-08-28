@@ -52,3 +52,8 @@ jobs:
           grep -q 'ivActivateNavigationCommand' walkthrough.js
           grep -q 'ivInstallCommandAutoGuide' walkthrough.js
           grep -q 'ivShow3D' walkthrough.js
+          grep -q 'ivPlaceUserAtOrigin' walkthrough.js
+          grep -q 'ivRouteWorldPoints' walkthrough.js
+          grep -q 'ivClosestRoutePosition' walkthrough.js
+          grep -q 'ivAdvanceOnRoute' walkthrough.js
+          grep -q 'ivRemainingRouteDistance' walkthrough.js
