@@ -44,3 +44,6 @@ jobs:
           grep -q 'ivInstall3DPicking' enhancements.js
           grep -q 'ivInjectWalkControls' walkthrough.js
           grep -q 'ivDrawBuildingLabels3D' walkthrough.js
+          grep -q 'ivStartGuidance' walkthrough.js
+          grep -q 'ivGuideMetrics' walkthrough.js
+          grep -q 'ivDrawUserAndGuidance' walkthrough.js
