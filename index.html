@@ -63,11 +63,12 @@
     <div id="map" aria-label="Mapa interactivo del Recinto de San Germán"></div>
     <div id="threeView" aria-label="Vista tridimensional ligera del campus">
       <canvas id="threeCanvas"></canvas>
-      <div class="three-help">Vista 3D ligera sin dependencias externas. Arrastra para rotar y usa la rueda para acercar o alejar. Los bloques muestran POI georreferenciados; los modelos arquitectónicos finales se desarrollarán en Unreal.</div>
+      <div class="three-help">Vista 3D ligera: footprints OSM, calles/senderos, relieve USGS cuando está disponible y selección directa de edificios. Arrastra para rotar, usa la rueda para zoom y haz clic sobre un edificio para seleccionarlo.</div>
     </div>
   </section>
 </main>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script src="./app.js"></script>
+<script src="./enhancements.js"></script>
 </body>
 </html>
