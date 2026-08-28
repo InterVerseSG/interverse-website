@@ -22,10 +22,13 @@ jobs:
         run: |
           test -f index.html
           test -f app.js
+          test -f enhancements.js
           test -f styles.css
           test -f render.yaml
       - name: Check JavaScript syntax
-        run: node --check app.js
+        run: |
+          node --check app.js
+          node --check enhancements.js
       - name: Check critical viewer hooks
         run: |
           grep -q 'threeCanvas' index.html
@@ -33,3 +36,6 @@ jobs:
           grep -q 'loadWalkingNetwork' app.js
           grep -q 'shortestPath' app.js
           grep -q 'draw3D' app.js
+          grep -q 'ivLoadTerrainSamples' enhancements.js
+          grep -q 'ivLoadCampusSurfaces' enhancements.js
+          grep -q 'ivInstall3DPicking' enhancements.js
