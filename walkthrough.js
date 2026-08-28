@@ -45,8 +45,7 @@ function ivInjectWalkControls(){
     toggle.setAttribute('aria-pressed',String(ivWalkEnabled));
     toggle.textContent=ivWalkEnabled?'Salir de recorrido':'Recorrer campus';
     if(ivWalkEnabled) ivStartWalkLoop(); else ivStopWalkLoop();
-    ivUpdateWalkStatus();
-    draw3D();
+    ivUpdateWalkStatus();draw3D();
   });
 
   document.getElementById('ivGuideToggle').addEventListener('click',()=>{
@@ -151,6 +150,48 @@ function ivUpdateGuidanceStatus(){
   if(m.distance<=12&&!ivGuideArrivalAnnounced){ivGuideArrivalAnnounced=true;setStatus(`Has llegado al área de ${name}.\nDestino: ${m.nav}`);}else if(m.distance>16)ivGuideArrivalAnnounced=false;
 }
 
+function ivShow3D(){
+  const button=document.getElementById('view3D');
+  if(button){button.click();return;}
+  const mapEl=document.getElementById('map'),three=document.getElementById('threeView');
+  if(mapEl)mapEl.style.display='none';if(three)three.style.display='block';
+  setTimeout(draw3D,30);
+}
+
+async function ivActivateNavigationCommand(nav){
+  if(!nav||!featureByNav.has(nav))return;
+  ivShow3D();
+  ivGuideNav=nav;
+  ivStartGuidance(nav,true);
+  const f=featureByNav.get(nav);
+  const name=displayForFeature(f);
+  setStatus(`Ruta y guía 3D activadas hacia ${name}.\nUsa WASD/flechas o los controles de recorrido para avanzar.`);
+}
+
+function ivInstallCommandAutoGuide(){
+  const send=document.getElementById('send');if(!send||send.dataset.ivAutoGuide==='1')return;
+  send.dataset.ivAutoGuide='1';
+  send.addEventListener('click',()=>{
+    const before=selectedNav;
+    const started=performance.now();
+    const watch=()=>{
+      if(selectedNav&&selectedNav!==before){ivActivateNavigationCommand(selectedNav);return;}
+      if(performance.now()-started<15000)setTimeout(watch,180);
+    };
+    setTimeout(watch,180);
+  });
+  const command=document.getElementById('command');
+  if(command)command.addEventListener('keydown',e=>{
+    if(e.key!=='Enter')return;
+    const before=selectedNav,started=performance.now();
+    const watch=()=>{
+      if(selectedNav&&selectedNav!==before){ivActivateNavigationCommand(selectedNav);return;}
+      if(performance.now()-started<15000)setTimeout(watch,180);
+    };
+    setTimeout(watch,180);
+  });
+}
+
 function ivBoxesOverlap(a,b){return !(a.r<b.l||a.l>b.r||a.b<b.t||a.t>b.b);}
 function ivDrawBuildingLabels3D(center,w,h){
   if(!Array.isArray(ivBuildingWays)||!ivBuildingWays.length)return;
@@ -164,14 +205,12 @@ function ivDrawBuildingLabels3D(center,w,h){
     labels.push({p,text:displayForFeature(f),selected:b.nav===selectedNav,nav:b.nav});
   }
   labels.sort((a,b)=>(b.selected-a.selected)||(b.p.s-a.p.s));
-  const occupied=[];
-  ctx.textBaseline='middle';
+  const occupied=[];ctx.textBaseline='middle';
   for(const l of labels){
     const font=l.selected?'bold 15px Arial':'12px Arial';ctx.font=font;
     const tw=ctx.measureText(l.text).width,pad=l.selected?7:5,bh=l.selected?25:20;
     const box={l:l.p.x-tw/2-pad,r:l.p.x+tw/2+pad,t:l.p.y-bh/2,b:l.p.y+bh/2};
-    const collides=occupied.some(o=>ivBoxesOverlap(box,o));
-    if(collides&&!l.selected)continue;
+    const collides=occupied.some(o=>ivBoxesOverlap(box,o));if(collides&&!l.selected)continue;
     occupied.push(box);
     if(l.selected){ctx.strokeStyle='rgba(254,209,65,.55)';ctx.lineWidth=6;ctx.beginPath();ctx.moveTo(l.p.x,l.p.y+bh/2);ctx.lineTo(l.p.x,l.p.y+46);ctx.stroke();}
     ctx.fillStyle=l.selected?'rgba(254,209,65,.97)':'rgba(255,255,255,.90)';ctx.fillRect(box.l,box.t,box.r-box.l,box.b-box.t);
@@ -181,20 +220,15 @@ function ivDrawBuildingLabels3D(center,w,h){
 }
 
 function ivSelectedDestinationPoint(center){
-  if(!selectedNav)return null;
-  const t=ivTargetWorld(selectedNav);if(!t)return null;
-  const q=localXY(t.ll,center),ground=ivTerrainHeight(t.ll)*2.2;
-  return {t,q,ground};
+  if(!selectedNav)return null;const t=ivTargetWorld(selectedNav);if(!t)return null;
+  const q=localXY(t.ll,center),ground=ivTerrainHeight(t.ll)*2.2;return {t,q,ground};
 }
 function ivDrawDestinationBeacon(center,w,h){
   const d=ivSelectedDestinationPoint(center);if(!d)return;
   const base=project({x:d.q.x,y:d.ground+3,z:d.q.z},w,h),top=project({x:d.q.x,y:d.ground+80,z:d.q.z},w,h);
-  ctx.save();
-  ctx.strokeStyle='rgba(254,209,65,.88)';ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(base.x,base.y);ctx.lineTo(top.x,top.y);ctx.stroke();
-  ctx.fillStyle='rgba(254,209,65,.22)';ctx.beginPath();ctx.arc(base.x,base.y,18,0,Math.PI*2);ctx.fill();
-  ctx.strokeStyle='#85714D';ctx.lineWidth=3;ctx.beginPath();ctx.arc(base.x,base.y,18,0,Math.PI*2);ctx.stroke();
-  ctx.fillStyle='#FED141';ctx.beginPath();ctx.moveTo(top.x,top.y-12);ctx.lineTo(top.x-10,top.y+7);ctx.lineTo(top.x+10,top.y+7);ctx.closePath();ctx.fill();ctx.stroke();
-  ctx.restore();
+  ctx.save();ctx.strokeStyle='rgba(254,209,65,.88)';ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(base.x,base.y);ctx.lineTo(top.x,top.y);ctx.stroke();
+  ctx.fillStyle='rgba(254,209,65,.22)';ctx.beginPath();ctx.arc(base.x,base.y,18,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#85714D';ctx.lineWidth=3;ctx.beginPath();ctx.arc(base.x,base.y,18,0,Math.PI*2);ctx.stroke();
+  ctx.fillStyle='#FED141';ctx.beginPath();ctx.moveTo(top.x,top.y-12);ctx.lineTo(top.x-10,top.y+7);ctx.lineTo(top.x+10,top.y+7);ctx.closePath();ctx.fill();ctx.stroke();ctx.restore();
 }
 
 function ivDrawUserAndGuidance(center,w,h){
@@ -218,26 +252,18 @@ function ivDrawUserAndGuidance(center,w,h){
 
 const ivWalkDraw3D=draw3D;
 draw3D=function(){
-  ivWalkDraw3D();
-  if(!ctx||!canvas||!campusBounds)return;
-  const w=canvas.width/devicePixelRatio,h=canvas.height/devicePixelRatio;
-  ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
-  const center=campusBounds.getCenter();
-  ivDrawDestinationBeacon(center,w,h);
-  ivDrawBuildingLabels3D(center,w,h);
-  ivDrawUserAndGuidance(center,w,h);
+  ivWalkDraw3D();if(!ctx||!canvas||!campusBounds)return;
+  const w=canvas.width/devicePixelRatio,h=canvas.height/devicePixelRatio;ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+  const center=campusBounds.getCenter();ivDrawDestinationBeacon(center,w,h);ivDrawBuildingLabels3D(center,w,h);ivDrawUserAndGuidance(center,w,h);
 };
 
 const ivOriginalShowDetails=showDetails;
-showDetails=function(nav){
-  ivOriginalShowDetails(nav);
-  if(ivGuideEnabled&&nav!==ivGuideNav)ivStartGuidance(nav,false);else ivUpdateGuidanceStatus();
-};
+showDetails=function(nav){ivOriginalShowDetails(nav);if(ivGuideEnabled&&nav!==ivGuideNav)ivStartGuidance(nav,false);else ivUpdateGuidanceStatus();};
 
 function ivWalkReady(){
-  ivInjectWalkControls();
+  ivInjectWalkControls();ivInstallCommandAutoGuide();
   const help=document.querySelector('.three-help');
-  if(help)help.textContent='Arrastra para rotar, rueda para zoom o activa “Recorrer campus”. Las etiquetas evitan solaparse y el destino seleccionado aparece con un beacon amarillo. En recorrido usa WASD/flechas y Q/E.';
+  if(help)help.textContent='Escribe “Llévame a…” para abrir automáticamente la guía 3D. Arrastra para rotar, rueda para zoom o activa “Recorrer campus”. Usa WASD/flechas y Q/E.';
   ivUpdateWalkStatus();ivUpdateGuidanceStatus();draw3D();
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ivWalkReady);else ivWalkReady();
